@@ -30,24 +30,26 @@ namespace dlib
 
     namespace impl
     {
-        template <typename label_type>
+        template <typename training_label_type>
         struct dnn_job_t
         {
             dnn_job_t() = default;
             dnn_job_t(const dnn_job_t&) = delete;
             dnn_job_t& operator=(const dnn_job_t&) = delete;
 
-            std::vector<std::vector<label_type>> labels;
+            std::vector<std::vector<training_label_type>> labels;
             std::vector<resizable_tensor> t;
             std::vector<int> have_data;  // have_data[i] is true if there is data in labels[i] and t[i].
+            bool test_only = false;
         };
 
-        template <typename label_type>
-        void swap(dnn_job_t<label_type>& a, dnn_job_t<label_type>& b)
+        template <typename training_label_type>
+        void swap(dnn_job_t<training_label_type>& a, dnn_job_t<training_label_type>& b)
         {
             a.labels.swap(b.labels);
             a.t.swap(b.t);
             a.have_data.swap(b.have_data);
+            std::swap(a.test_only,b.test_only);
         }
     }
 
@@ -63,12 +65,12 @@ namespace dlib
         static_assert(is_loss_layer_type<net_type>::value, 
             "The last layer in a network must be a loss layer.");
 
-        typedef typename net_type::label_type label_type;
+        typedef typename net_type::training_label_type training_label_type;
         typedef typename net_type::input_type input_type;
         const static size_t num_computational_layers = net_type::num_computational_layers;
         const static size_t num_layers = net_type::num_layers;
     private:
-        typedef impl::dnn_job_t<label_type> job_t;
+        typedef impl::dnn_job_t<training_label_type> job_t;
     public:
 
         dnn_trainer() = delete;
@@ -131,9 +133,10 @@ namespace dlib
         }
 
         net_type& get_net (
-        ) const 
+        )  
         { 
             wait_for_thread_to_pause();
+            sync_to_disk(true);
             propagate_exception();
             return net; 
         }
@@ -184,7 +187,7 @@ namespace dlib
 
         void train_one_step (
             const std::vector<input_type>& data,
-            const std::vector<label_type>& labels 
+            const std::vector<training_label_type>& labels 
         )
         {
             DLIB_CASSERT(data.size() == labels.size());
@@ -204,22 +207,9 @@ namespace dlib
         {
             DLIB_CASSERT(std::distance(dbegin, dend) > 0);
 
-            if (verbose)
-            {
-                using namespace std::chrono;
-                auto now_time = system_clock::now();
-                if (now_time-last_time > seconds(40))
-                {
-                    last_time = now_time;
-                    std::cout << "step#: " << rpad(cast_to_string(train_one_step_calls),epoch_string_pad) << "  " 
-                              << "learning rate: " << rpad(cast_to_string(learning_rate),lr_string_pad) << "  "
-                              << "average loss: " << rpad(cast_to_string(get_average_loss()),string_pad)  << "  ";
-                    print_progress();
-                    clear_average_loss();
-                }
-            }
+            print_periodic_verbose_status();
             sync_to_disk();
-            send_job(dbegin, dend, lbegin);
+            send_job(false, dbegin, dend, lbegin);
 
             ++train_one_step_calls;
         }
@@ -240,33 +230,70 @@ namespace dlib
         )
         {
             DLIB_CASSERT(std::distance(dbegin, dend) > 0);
-            if (verbose)
-            {
-                using namespace std::chrono;
-                auto now_time = system_clock::now();
-                if (now_time-last_time > seconds(40))
-                {
-                    last_time = now_time;
-                    std::cout << "step#: " << rpad(cast_to_string(train_one_step_calls),epoch_string_pad) << "  " 
-                              << "learning rate: " << rpad(cast_to_string(learning_rate),lr_string_pad) << "  "
-                              << "average loss: " << rpad(cast_to_string(get_average_loss()),string_pad) << "  ";
-                    print_progress();
-                    clear_average_loss();
-                }
-            }
+            print_periodic_verbose_status();
             sync_to_disk();
-            send_job(dbegin, dend);
+            send_job(false, dbegin, dend);
+            ++train_one_step_calls;
+        }
+
+        void test_one_step (
+            const std::vector<input_type>& data,
+            const std::vector<training_label_type>& labels 
+        )
+        {
+            DLIB_CASSERT(data.size() == labels.size());
+
+            test_one_step(data.begin(), data.end(), labels.begin());
+        }
+
+        template <
+            typename data_iterator,
+            typename label_iterator
+            >
+        void test_one_step (
+            data_iterator dbegin, 
+            data_iterator dend,
+            label_iterator lbegin
+        )
+        {
+            DLIB_CASSERT(std::distance(dbegin, dend) > 0);
+
+            print_periodic_verbose_status();
+            sync_to_disk();
+            send_job(true, dbegin, dend, lbegin);
+
+            ++train_one_step_calls;
+        }
+
+        void test_one_step (
+            const std::vector<input_type>& data
+        )
+        {
+            test_one_step(data.begin(), data.end());
+        }
+
+        template <
+            typename data_iterator
+            >
+        void test_one_step (
+            data_iterator dbegin, 
+            data_iterator dend
+        )
+        {
+            DLIB_CASSERT(std::distance(dbegin, dend) > 0);
+            print_periodic_verbose_status();
+            sync_to_disk();
+            send_job(true, dbegin, dend);
             ++train_one_step_calls;
         }
 
         void train (
             const std::vector<input_type>& data,
-            const std::vector<label_type>& labels 
+            const std::vector<training_label_type>& labels 
         ) 
         {
             DLIB_CASSERT(data.size() == labels.size() && data.size() > 0);
 
-            bool updated_the_network = false;
             // The reason these two loops don't initialize their counter variables but
             // instead use class members is so we can include the state of the loops in the
             // stuff written by sync_to_disk()
@@ -294,10 +321,9 @@ namespace dlib
                     }
 
                     sync_to_disk();
-                    send_job(data.begin()+epoch_pos, 
+                    send_job(false, data.begin()+epoch_pos, 
                               data.begin()+std::min(epoch_pos+mini_batch_size,data.size()), 
                               labels.begin()+epoch_pos);
-                    updated_the_network = true;
                 }
                 epoch_pos = 0;
 
@@ -313,7 +339,7 @@ namespace dlib
             }
             wait_for_thread_to_pause();
             // if we modified the network at all then be sure to sync the final result.
-            sync_to_disk(updated_the_network);
+            sync_to_disk(true);
         }
 
         void train (
@@ -322,11 +348,10 @@ namespace dlib
         {
             DLIB_CASSERT(data.size() > 0);
 
-            const bool has_unsupervised_loss = std::is_same<no_label_type, label_type>::value; 
+            const bool has_unsupervised_loss = std::is_same<no_label_type, training_label_type>::value; 
             static_assert(has_unsupervised_loss, 
                 "You can only call this version of train() when using an unsupervised loss.");
 
-            bool updated_the_network = false;
             // The reason these two loops don't initialize their counter variables but
             // instead use class members is so we can include the state of the loops in the
             // stuff written by sync_to_disk()
@@ -354,9 +379,8 @@ namespace dlib
                     }
 
                     sync_to_disk();
-                    send_job(data.begin()+epoch_pos, 
+                    send_job(false, data.begin()+epoch_pos, 
                              data.begin()+std::min(epoch_pos+mini_batch_size,data.size()));
-                    updated_the_network = true;
                 }
                 epoch_pos = 0;
 
@@ -372,7 +396,7 @@ namespace dlib
             }
             wait_for_thread_to_pause();
             // if we modified the network at all then be sure to sync the final result.
-            sync_to_disk(updated_the_network);
+            sync_to_disk(true);
         }
 
         void set_synchronization_file (
@@ -397,6 +421,16 @@ namespace dlib
             return rs.mean();
         }
 
+        double get_average_test_loss (
+        ) const
+        {
+            wait_for_thread_to_pause();
+            running_stats<double> tmp;
+            for (auto& x : test_previous_loss_values)
+                tmp.add(x);
+            return tmp.mean();
+        }
+
         void clear_average_loss (
         )
         {
@@ -413,7 +447,9 @@ namespace dlib
             if (learning_rate != lr)
             {
                 steps_without_progress = 0;
+                test_steps_without_progress = 0;
                 previous_loss_values.clear();
+                test_previous_loss_values.clear();
             }
             learning_rate = lr;
             lr_schedule.set_size(0);
@@ -482,6 +518,27 @@ namespace dlib
             return steps_without_progress;
         }
 
+        void set_test_iterations_without_progress_threshold (
+            unsigned long thresh 
+        )
+        {
+            wait_for_thread_to_pause();
+            lr_schedule.set_size(0);
+            test_iter_without_progress_thresh = thresh;
+        }
+
+        unsigned long get_test_iterations_without_progress_threshold (
+        ) const
+        {
+            return test_iter_without_progress_thresh;
+        }
+
+        unsigned long get_test_steps_without_progress (
+        ) const
+        {
+            return test_steps_without_progress;
+        }
+
         void set_learning_rate_shrink_factor (
             double shrink
         )
@@ -491,6 +548,7 @@ namespace dlib
             lr_schedule.set_size(0);
             learning_rate_shrink = shrink;
             steps_without_progress = 0;
+            test_steps_without_progress = 0;
         }
 
         double get_learning_rate_shrink_factor (
@@ -506,6 +564,14 @@ namespace dlib
         }
 
     private:
+
+        void record_test_loss(double loss)
+        {
+            test_previous_loss_values.push_back(loss);
+            // discard really old loss values.
+            while (test_previous_loss_values.size() > test_iter_without_progress_thresh)
+                test_previous_loss_values.pop_front();
+        }
 
         void record_loss(double loss)
         {
@@ -530,7 +596,10 @@ namespace dlib
             {
                 auto&& dev = *devices[device];
                 dlib::cuda::set_device(dev.device_id);
-                return dev.net.compute_parameter_gradients(next_job.t[device], next_job.labels[device].begin());
+                if (next_job.test_only)
+                    return dev.net.compute_loss(next_job.t[device], next_job.labels[device].begin());
+                else
+                    return dev.net.compute_parameter_gradients(next_job.t[device], next_job.labels[device].begin());
             }
             else
             {
@@ -545,7 +614,10 @@ namespace dlib
                 auto&& dev = *devices[device];
                 dlib::cuda::set_device(dev.device_id);
                 no_label_type pick_which_run_update;
-                return dev.net.compute_parameter_gradients(next_job.t[device]);
+                if (next_job.test_only)
+                    return dev.net.compute_loss(next_job.t[device]);
+                else
+                    return dev.net.compute_parameter_gradients(next_job.t[device]);
             }
             else
             {
@@ -562,7 +634,7 @@ namespace dlib
 
         void thread() try
         {
-            label_type pick_which_run_update;
+            training_label_type pick_which_run_update;
             job_t next_job;
 
             std::vector<dlib::future<double>> losses(devices.size());
@@ -577,9 +649,10 @@ namespace dlib
             // We make separate thread pools with just one thread in them because we want
             // to make sure each device is always executed on the same thread.  We care
             // about this because there are thread_local context variables for some cuda
-            // components and they get regenerated when the current cuda device changes.
-            // Recreating them over and over is somewhat expensive so we want to avoid
-            // that.
+            // components and they get allocated for each combination of thread and device.
+            // So if we make sure the same device always uses the same thread this will
+            // reduce the number of contexts we allocate from num_devices*num_devices to
+            // just num_devices. 
             std::vector<std::shared_ptr<thread_pool>> tp;
             for (size_t i = 0; i < devices.size(); ++i)
                 tp.push_back(std::make_shared<thread_pool>(1));
@@ -588,10 +661,42 @@ namespace dlib
             main_iteration_counter = 0;
             while(job_pipe.dequeue(next_job))
             {
+                if (next_job.test_only)
+                {
+                    // compute the testing loss
+                    for (size_t i = 0; i < devices.size(); ++i)
+                        tp[i]->add_task_by_value([&,i](double& loss){ loss = compute_parameter_gradients(i, next_job, pick_which_run_update); }, losses[i]);
+                    // aggregate loss values from all the network computations.
+                    double theloss = 0;
+                    for (auto&& loss : losses)
+                        theloss += loss.get();
+                    record_test_loss(theloss/losses.size());
+
+                    // Check if we should shrink the learning rate based on how the test
+                    // error has been doing lately.
+                    if (learning_rate_shrink != 1)
+                    {
+                        test_steps_without_progress = count_steps_without_decrease(test_previous_loss_values);
+                        if (test_steps_without_progress >= test_iter_without_progress_thresh)
+                        {
+                            test_steps_without_progress = count_steps_without_decrease_robust(test_previous_loss_values);
+                            if (test_steps_without_progress >= test_iter_without_progress_thresh)
+                            {
+                                // optimization has flattened out, so drop the learning rate. 
+                                learning_rate = learning_rate_shrink*learning_rate;
+                                test_steps_without_progress = 0;
+                                test_previous_loss_values.clear();
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                updated_net_since_last_sync = true;
                 ++main_iteration_counter;
                 // Call compute_parameter_gradients() and update_parameters() but pick the
                 // right version for unsupervised or supervised training based on the type
-                // of label_type.
+                // of training_label_type.
                 for (size_t i = 0; i < devices.size(); ++i)
                     tp[i]->add_task_by_value([&,i](double& loss){ loss = compute_parameter_gradients(i, next_job, pick_which_run_update); }, losses[i]);
                 // aggregate loss values from all the network computations.
@@ -650,7 +755,7 @@ namespace dlib
                     tp[i]->wait_for_all_tasks();
 
 
-                // Evey now and then force all the parameters to be the same just to make
+                // Every now and then force all the parameters to be the same just to make
                 // sure they aren't drifting apart due to any non-deterministic behavior on
                 // the GPU.  It's also important to do this on the first iteration because
                 // the different networks may be initialized differently when tensor data
@@ -721,7 +826,7 @@ namespace dlib
             job_pipe.wait_for_num_blocked_dequeues(1);
         }
 
-        const static long string_pad = 10;
+        const static long string_pad = 11;
         const static long epoch_string_pad = 4;
         const static long lr_string_pad = 4;
 
@@ -734,6 +839,9 @@ namespace dlib
             min_learning_rate = 1e-5;
             iter_without_progress_thresh = 2000;
             steps_without_progress = 0;
+            test_iter_without_progress_thresh = 200;
+            test_steps_without_progress = 0;
+
             learning_rate_shrink = 0.1;
             epoch_iteration = 0;
             epoch_pos = 0;
@@ -743,6 +851,10 @@ namespace dlib
 
             main_iteration_counter = 0;
             main_iteration_counter_at_last_disk_sync = 0;
+            prob_loss_increasing_thresh_default_value = 0.99;
+            prob_loss_increasing_thresh_max_value = 0.99999;
+            prob_loss_increasing_thresh = prob_loss_increasing_thresh_default_value;
+            updated_net_since_last_sync = false;
             start();
         }
 
@@ -753,7 +865,7 @@ namespace dlib
         friend void serialize(const dnn_trainer& item, std::ostream& out)
         {
             item.wait_for_thread_to_pause();
-            int version = 7;
+            int version = 8;
             serialize(version, out);
 
             size_t nl = dnn_trainer::num_layers;
@@ -775,13 +887,17 @@ namespace dlib
             serialize(item.train_one_step_calls, out);
             serialize(item.lr_schedule, out);
             serialize(item.lr_schedule_pos, out);
+            serialize(item.test_iter_without_progress_thresh.load(), out);
+            serialize(item.test_steps_without_progress.load(), out);
+            serialize(item.test_previous_loss_values, out);
+
         }
         friend void deserialize(dnn_trainer& item, std::istream& in)
         {
             item.wait_for_thread_to_pause();
             int version = 0;
             deserialize(version, in);
-            if (version != 7)
+            if (version != 8)
                 throw serialization_error("Unexpected version found while deserializing dlib::dnn_trainer.");
 
             size_t num_layers = 0;
@@ -813,6 +929,9 @@ namespace dlib
             deserialize(item.train_one_step_calls, in);
             deserialize(item.lr_schedule, in);
             deserialize(item.lr_schedule_pos, in);
+            deserialize(ltemp, in); item.test_iter_without_progress_thresh = ltemp;
+            deserialize(ltemp, in); item.test_steps_without_progress = ltemp;
+            deserialize(item.test_previous_loss_values, in);
 
             if (item.devices.size() > 1)
             {
@@ -829,10 +948,15 @@ namespace dlib
                 dlib::cuda::set_device(prev_dev);
             }
         }
+
         void sync_to_disk (
             bool do_it_now = false
-        )
+        ) 
         {
+            // don't sync anything if we haven't updated the network since the last sync
+            if (!updated_net_since_last_sync)
+                return;
+
             // If the sync file isn't set then don't do anything.
             if (sync_filename.size() == 0)
                 return;
@@ -853,8 +977,6 @@ namespace dlib
                 // previously saved state in the hopes that the problem won't reoccur.
                 if (loss_increased_since_last_disk_sync()) 
                 {
-                    // reload from the previous sync file.  The file should exist since we
-                    // checked that main_iteration_counter_at_last_disk_sync != 0.
                     std::ifstream fin(sync_filename, std::ios::binary);
                     deserialize(*this, fin);
                     if (verbose)
@@ -878,18 +1000,28 @@ namespace dlib
 
                 last_sync_time = std::chrono::system_clock::now();
                 main_iteration_counter_at_last_disk_sync = main_iteration_counter;
+                updated_net_since_last_sync = false;
             }
         }
 
-        bool loss_increased_since_last_disk_sync() const
+        bool loss_increased_since_last_disk_sync() 
         {
             size_t gradient_updates_since_last_sync = main_iteration_counter - main_iteration_counter_at_last_disk_sync;
 
             // if we haven't synced anything to disk yet then return false.
-            if (main_iteration_counter_at_last_disk_sync == 0)
+            if (!std::ifstream(sync_filename, std::ios::binary))
                 return false;
 
-            // if we haven't seen much data yet then just say false.
+            for (auto x : previous_loss_values)
+            {
+                // If we get a NaN value of loss assume things have gone horribly wrong and
+                // we should reload the state of the trainer.
+                if (std::isnan(x))
+                    return true;
+            }
+
+            // if we haven't seen much data yet then just say false.  Or, alternatively, if
+            // it's been too long since the last sync then don't reload either.
             if (gradient_updates_since_last_sync < 30 || previous_loss_values.size() < 2*gradient_updates_since_last_sync)
                 return false;
 
@@ -900,7 +1032,25 @@ namespace dlib
                 g.add(previous_loss_values[i]);
 
             // if the loss is very likely to be increasing then return true
-            return g.probability_gradient_greater_than(0) > 0.99;
+            const double prob = g.probability_gradient_greater_than(0);
+            if (prob > prob_loss_increasing_thresh && prob_loss_increasing_thresh <= prob_loss_increasing_thresh_max_value)
+            {
+                // Exponentially decay the threshold towards 1 so that if we keep finding
+                // the loss to be increasing over and over we will make the test
+                // progressively harder and harder until it fails, therefore ensuring we
+                // can't get stuck reloading from a previous state over and over. 
+                prob_loss_increasing_thresh = 0.1*prob_loss_increasing_thresh + 0.9*1;
+                return true;
+            }
+            else
+            {
+                // decay back to the default threshold
+                prob_loss_increasing_thresh = std::pow(prob_loss_increasing_thresh, 10.0);
+                // but don't decay below the default value
+                prob_loss_increasing_thresh = std::max(prob_loss_increasing_thresh, prob_loss_increasing_thresh_default_value);
+
+                return false;
+            }
         }
 
 
@@ -933,6 +1083,7 @@ namespace dlib
             typename label_iterator
             >
         void send_job (
+            bool test_only,
             data_iterator dbegin, 
             data_iterator dend,
             label_iterator lbegin
@@ -944,6 +1095,7 @@ namespace dlib
             job.t.resize(devs);
             job.labels.resize(devs);
             job.have_data.resize(devs);
+            job.test_only = test_only;
 
             // chop the data into devs blocks, each of about block_size elements.
             size_t block_size = (num+devs-1)/devs;
@@ -976,19 +1128,23 @@ namespace dlib
             typename data_iterator
             >
         void send_job (
+            bool test_only,
             data_iterator dbegin, 
             data_iterator dend
         )
         {
-            typename std::vector<label_type>::iterator nothing;
-            send_job(dbegin, dend, nothing);
+            typename std::vector<training_label_type>::iterator nothing;
+            send_job(test_only, dbegin, dend, nothing);
         }
 
         void print_progress()
         {
             if (lr_schedule.size() == 0)
             {
-                std::cout << "steps without apparent progress: " << steps_without_progress;
+                if (test_previous_loss_values.size() == 0)
+                    std::cout << "steps without apparent progress: " << steps_without_progress;
+                else
+                    std::cout << "steps without apparent progress: train=" << steps_without_progress << ", test=" << test_steps_without_progress;
             }
             else
             {
@@ -997,6 +1153,32 @@ namespace dlib
                 std::cout << sout.str();
             }
             std::cout << std::endl;
+        }
+
+        void print_periodic_verbose_status()
+        {
+            if (verbose)
+            {
+                using namespace std::chrono;
+                auto now_time = system_clock::now();
+                if (now_time-last_time > seconds(40))
+                {
+                    last_time = now_time;
+                    std::cout << "step#: " << rpad(cast_to_string(train_one_step_calls),epoch_string_pad) << "  " 
+                              << "learning rate: " << rpad(cast_to_string(learning_rate),lr_string_pad) << "  ";
+                    if (test_previous_loss_values.size() == 0)
+                    {
+                        std::cout << "average loss: " << rpad(cast_to_string(get_average_loss()),string_pad) << "  ";
+                    }
+                    else
+                    {
+                        std::cout << "train loss: " << rpad(cast_to_string(get_average_loss()),string_pad) << "  ";
+                        std::cout << "test loss: " << rpad(cast_to_string(get_average_test_loss()),string_pad) << "  ";
+                    }
+                    print_progress();
+                    clear_average_loss();
+                }
+            }
         }
 
         std::vector<std::shared_ptr<device_data>> devices;
@@ -1014,6 +1196,11 @@ namespace dlib
         double min_learning_rate;
         std::atomic<unsigned long> iter_without_progress_thresh;
         std::atomic<unsigned long> steps_without_progress;
+
+        std::atomic<unsigned long> test_iter_without_progress_thresh;
+        std::atomic<unsigned long> test_steps_without_progress;
+        std::deque<double> test_previous_loss_values;
+
         std::atomic<double> learning_rate_shrink;
         std::chrono::time_point<std::chrono::system_clock> last_sync_time;
         std::string sync_filename;
@@ -1026,7 +1213,7 @@ namespace dlib
         long lr_schedule_pos;
         unsigned long gradient_check_budget;
 
-        std::exception_ptr eptr;
+        std::exception_ptr eptr = nullptr;
         mutable std::mutex eptr_mutex;
         void propagate_exception() const
         {
@@ -1035,9 +1222,13 @@ namespace dlib
                 std::rethrow_exception(eptr);
         }
 
-        // These two variables are not serialized 
+        // These 5 variables are not serialized 
         size_t main_iteration_counter;
         size_t main_iteration_counter_at_last_disk_sync;
+        double prob_loss_increasing_thresh_default_value;
+        double prob_loss_increasing_thresh_max_value;
+        double prob_loss_increasing_thresh;
+        std::atomic<bool> updated_net_since_last_sync;
 
     };
 
