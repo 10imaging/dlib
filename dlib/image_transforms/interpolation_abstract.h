@@ -417,6 +417,28 @@ namespace dlib
 // ----------------------------------------------------------------------------------------
 
     template <
+        typename image_type
+        >
+    void resize_image (
+        double size_scale,
+        image_type& img 
+    );
+    /*!
+        requires
+            - image_type == an image object that implements the interface defined in
+              dlib/image_processing/generic_image.h 
+            - pixel_traits<typename image_traits<image_type>::pixel_type>::has_alpha == false
+        ensures
+            - Resizes img so that each of it's dimensions are size_scale times larger than img.
+              In particular, we will have:
+                - #img.nr() == std::round(size_scale*img.nr())
+                - #img.nc() == std::round(size_scale*img.nc())
+                - #img == a bilinearly interpolated copy of the input image.
+    !*/
+
+// ----------------------------------------------------------------------------------------
+
+    template <
         typename image_type1,
         typename image_type2
         >
@@ -438,6 +460,29 @@ namespace dlib
               (i.e. it is flipped as if viewed though a mirror)
             - returns a transformation object that maps points in in_img into their
               corresponding location in #out_img.
+    !*/
+
+// ----------------------------------------------------------------------------------------
+
+    template <
+        typename image_type
+        >
+    point_transform_affine flip_image_left_right (
+        image_type& img
+    );
+    /*!
+        requires
+            - image_type == an image object that implements the interface defined in
+              dlib/image_processing/generic_image.h 
+        ensures
+            - This function is identical to the above version of flip_image_left_right()
+              except that it operates in-place.
+            - #img.nr() == img.nr()
+            - #img.nc() == img.nc()
+            - #img == a copy of img which has been flipped from left to right.  
+              (i.e. it is flipped as if viewed though a mirror)
+            - returns a transformation object that maps points in img into their
+              corresponding location in #img.
     !*/
 
 // ----------------------------------------------------------------------------------------
@@ -632,7 +677,8 @@ namespace dlib
         >
     void upsample_image_dataset (
         image_array_type& images,
-        std::vector<std::vector<rectangle> >& objects
+        std::vector<std::vector<rectangle> >& objects,
+        unsigned long max_image_size = std::numeric_limits<unsigned long>::max()
     );
     /*!
         requires
@@ -645,6 +691,7 @@ namespace dlib
               pyramid_type.  Therefore, #images[i] will contain the larger upsampled
               version of images[i].  It also adjusts all the rectangles in objects so that
               they still bound the same visual objects in each image.
+            - Input images already containing more than max_image_size pixels are not upsampled.
             - #images.size() == image.size()
             - #objects.size() == objects.size()
             - for all valid i:
@@ -659,7 +706,8 @@ namespace dlib
         >
     void upsample_image_dataset (
         image_array_type& images,
-        std::vector<std::vector<mmod_rect>>& objects
+        std::vector<std::vector<mmod_rect>>& objects,
+        unsigned long max_image_size = std::numeric_limits<unsigned long>::max()
     );
     /*!
         requires
@@ -672,6 +720,7 @@ namespace dlib
               pyramid_type.  Therefore, #images[i] will contain the larger upsampled
               version of images[i].  It also adjusts all the rectangles in objects so that
               they still bound the same visual objects in each image.
+            - Input images already containing more than max_image_size pixels are not upsampled.
             - #images.size() == image.size()
             - #objects.size() == objects.size()
             - for all valid i:
@@ -687,7 +736,8 @@ namespace dlib
     void upsample_image_dataset (
         image_array_type& images,
         std::vector<std::vector<rectangle> >& objects,
-        std::vector<std::vector<rectangle> >& objects2 
+        std::vector<std::vector<rectangle> >& objects2,
+        unsigned long max_image_size = std::numeric_limits<unsigned long>::max()
     );
     /*!
         requires
@@ -701,6 +751,7 @@ namespace dlib
               pyramid_type.  Therefore, #images[i] will contain the larger upsampled
               version of images[i].  It also adjusts all the rectangles in objects and
               objects2 so that they still bound the same visual objects in each image.
+            - Input images already containing more than max_image_size pixels are not upsampled.
             - #images.size() == image.size()
             - #objects.size() == objects.size()
             - #objects2.size() == objects2.size()

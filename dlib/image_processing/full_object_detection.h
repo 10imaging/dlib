@@ -91,6 +91,22 @@ namespace dlib
             deserialize(item.parts, in);
         }
 
+        bool operator==(
+            const full_object_detection& rhs
+        ) const
+        {
+            if (rect != rhs.rect)
+                return false;
+            if (parts.size() != rhs.parts.size())
+                return false;
+            for (size_t i = 0; i < parts.size(); ++i)
+            {
+                if (parts[i] != rhs.parts[i])
+                    return false;
+            }
+            return true;
+        }
+
     private:
         rectangle rect;
         std::vector<point> parts;  
@@ -124,6 +140,12 @@ namespace dlib
         bool ignore = false;
 
         operator rectangle() const { return rect; }
+        bool operator == (const mmod_rect& rhs) const
+        { 
+            return rect == rhs.rect 
+                   && detection_confidence == rhs.detection_confidence
+                   && ignore == rhs.ignore;
+        }
     };
 
     inline mmod_rect ignored_mmod_rect(const rectangle& r)
