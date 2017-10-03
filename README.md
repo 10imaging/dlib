@@ -1,4 +1,5 @@
 # dlib C++ library [![Travis Status](https://travis-ci.org/davisking/dlib.svg?branch=master)](https://travis-ci.org/davisking/dlib)
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2F10imaging%2Fdlib.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2F10imaging%2Fdlib?ref=badge_shield)
 
 Dlib is a modern C++ toolkit containing machine learning algorithms and tools for creating complex software in C++ to solve real world problems. See [http://dlib.net](http://dlib.net) for the main project documentation and API reference.
 
@@ -64,3 +65,7 @@ This library is licensed under the Boost Software License, which can be found in
 
 This research is based in part upon work supported by the Office of the Director of National Intelligence (ODNI), Intelligence Advanced Research Projects Activity (IARPA) under contract number 2014-14071600010. The views and conclusions contained herein are those of the authors and should not be interpreted as necessarily representing the official policies or endorsements, either expressed or implied, of ODNI, IARPA, or the U.S. Government.
 
+
+
+## License
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2F10imaging%2Fdlib.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2F10imaging%2Fdlib?ref=badge_large)
