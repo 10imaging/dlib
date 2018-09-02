@@ -144,8 +144,28 @@
             <name>Examples: Python</name>
             <sub>
                <item>
+                  <name>Global Optimization</name>
+                  <link>global_optimization.py.html</link>
+               </item>
+               <item>
+                  <name>Face Clustering</name>
+                  <link>face_clustering.py.html</link>
+               </item>
+               <item>
+                  <name>Face Jittering/Augmentation</name>
+                  <link>face_jitter.py.html</link>
+               </item>
+               <item>
+                  <name>Face Alignment</name>
+                  <link>face_alignment.py.html</link>
+               </item>
+               <item>
                   <name>Video Object Tracking</name>
                   <link>correlation_tracker.py.html</link>
+               </item>
+               <item>
+                  <name>Binary Classification</name>
+                  <link>svm_binary_classifier.py.html</link>
                </item>
                <item>
                   <name>Face Landmark Detection</name>
@@ -229,8 +249,20 @@
                   <link>dnn_face_recognition_ex.cpp.html</link>
                </item>
                <item>
+                  <name>Deep Learning Semantic Segmentation Trainer</name>
+                  <link>dnn_semantic_segmentation_train_ex.cpp.html</link>
+               </item>
+               <item>
+                  <name>Deep Learning Semantic Segmentation</name>
+                  <link>dnn_semantic_segmentation_ex.cpp.html</link>
+               </item>
+               <item>
                   <name>Deep Learning Vehicle Detection</name>
                   <link>dnn_mmod_find_cars_ex.cpp.html</link>
+               </item>
+               <item>
+                  <name>Deep Learning Multi-Class Vehicle Detection</name>
+                  <link>dnn_mmod_find_cars2_ex.cpp.html</link>
                </item>
                <item>
                   <name>Deep Learning Vehicle Detection Trainer</name>

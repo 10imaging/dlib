@@ -124,7 +124,7 @@ int main(int argc, char** argv) try
     // 
     // To explain this non-max suppression idea further it's important to understand how
     // the detector works.  Essentially, sliding window detectors scan all image locations
-    // and ask "is there a care here?".  If there really is a car in a specific location in
+    // and ask "is there a car here?".  If there really is a car in a specific location in
     // an image then usually many slightly different sliding window locations will produce
     // high detection scores, indicating that there is a car at those locations.  If we
     // just stopped there then each car would produce multiple detections.  But that isn't
@@ -161,13 +161,13 @@ int main(int argc, char** argv) try
 
     int num_overlapped_ignored_test = 0;
     for (auto& v : boxes_test)
-        num_overlapped_ignored_test += ignore_overlapped_boxes(v, test_box_overlap(0.50, 0.99));
+        num_overlapped_ignored_test += ignore_overlapped_boxes(v, test_box_overlap(0.50, 0.95));
 
     int num_overlapped_ignored = 0;
     int num_additional_ignored = 0;
     for (auto& v : boxes_train)
     {
-        num_overlapped_ignored += ignore_overlapped_boxes(v, test_box_overlap(0.50, 0.99));
+        num_overlapped_ignored += ignore_overlapped_boxes(v, test_box_overlap(0.50, 0.95));
         for (auto& bb : v)
         {
             if (bb.rect.width() < 35 && bb.rect.height() < 35)
@@ -308,9 +308,11 @@ int main(int argc, char** argv) try
     std::vector<matrix<rgb_pixel>> mini_batch_samples;
     std::vector<std::vector<mmod_rect>> mini_batch_labels; 
     random_cropper cropper;
-    cropper.set_seed(1);
+    cropper.set_seed(time(0));
     cropper.set_chip_dims(350, 350);
-    cropper.set_min_object_size(0.20); 
+    // Usually you want to give the cropper whatever min sizes you passed to the
+    // mmod_options constructor, or very slightly smaller sizes, which is what we do here.
+    cropper.set_min_object_size(69,28); 
     cropper.set_max_rotation_degrees(2);
     dlib::rand rnd;
 
